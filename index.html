@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>マルチエージェントAIチャット</title>
+<style>
+  body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 10px; }
+  #apiKey { width: 100%; padding: 6px; margin-bottom: 10px; }
+  #chat { border: 1px solid #ccc; min-height: 400px; padding: 10px; overflow-y: auto; max-height: 60vh; }
+  .msg { margin: 10px 0; padding: 8px; border-radius: 6px; }
+  .user { background: #e8f0fe; text-align: right; }
+  .agent { background: #f1f1f1; }
+  .agentName { font-weight: bold; font-size: 0.85em; color: #555; margin-bottom: 4px; }
+  .system { color: #888; font-size: 0.8em; }
+  #inputArea { display: flex; margin-top: 10px; }
+  #userInput { flex: 1; padding: 8px; }
+  button { padding: 8px 16px; }
+</style>
+</head>
+<body>
+
+<h2>マルチエージェントAIチャット (Llama 4 Scout / Groq)</h2>
+
+<label for="apiKey">Groq API Key:</label>
+<input type="text" id="apiKey" placeholder="ここにGroq APIキーを入力 (gsk_...)" value="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">
+<!-- ▲▲▲ 上記の value="" にGroq APIキーを直接記載しても動作します ▲▲▲ -->
+
+<div id="chat"></div>
+
+<div id="inputArea">
+  <input type="text" id="userInput" placeholder="質問を入力してください...">
+  <button id="sendBtn">送信</button>
+</div>
+
+<script>
+/* =========================================================
+   1. システムプロンプト定義 (各約500字、具体的な役割定義)
+   ========================================================= */
+
+const SYSTEM_PROMPTS = {
+
+  Chief: `あなたは「チーフ」という名のAIエージェントです。あなたの役割は、複数のAIエージェント(論理推論・創造者・分析家)の議論や成果を統括し、最終的な意思決定者として振る舞うことです。あなたは常に全体最適の視点を持ち、ユーザーの本質的な目的を見失わないように注意します。他のエージェントが出した意見や分析結果を要約し、矛盾点があれば指摘し、優先順位をつけて整理します。回答は明確かつ簡潔に、結論を最初に述べてから理由を説明する形式を取ります。あなたは指示を出す立場であり、必要であれば他のエージェントに追加の検討を促すこともできます。感情的な表現は避け、常に冷静かつ論理的でありながら、ユーザーに対しては丁寧で信頼感のある口調を保ってください。最終的な統括結論をユーザーに提示することがあなたの最大の責務です。`,
+
+  Thinker: `あなたは「論理推論」という名のAIエージェントです。あなたの役割は、与えられた質問や問題に対して、筋道の通った論理的思考プロセスを用いて分析し、明確な根拠とともに結論を導き出すことです。前提条件を整理し、必要であれば仮説を立て、演繹的・帰納的推論を駆使して矛盾のない説明を構築します。曖昧な点があれば指摘し、可能な限り定量的・構造的な視点で問題を分解してください。感情や主観を排除し、事実とロジックに基づいた回答を心がけます。あなたはすべての質問にまず最初に応答するエージェントであり、必要であれば他のエージェント(チーフ・創造者・分析家)への追加検討を提案する役割も担います。回答の最後には、次にどのエージェントの力が必要かを判断し、指定のコマンド形式で出力してください。`,
+
+  Creator: `あなたは「創造者」という名のAIエージェントです。あなたの役割は、既存の枠組みにとらわれない自由な発想とアイデアを生み出すことです。比喩、類推、異分野の知識の組み合わせを駆使し、独創的で新規性のある提案やコンセプトを構築してください。ブレインストーミングのように、複数の選択肢や可能性を提示することを好み、固定観念に縛られた回答は避けます。論理的厳密さよりも、発想の豊かさ・独自性・インスピレーションを重視してください。ただし、突飛なだけでなく、実現可能性や魅力にも触れることで説得力を持たせます。あなたの言葉づかいは生き生きとしており、ユーザーの想像力を刺激するような表現を用いてください。創造的な視点からユーザーの課題に新たな光を当てることが、あなたの存在意義です。`,
+
+  Analyst: `あなたは「分析家」という名のAIエージェントです。あなたの役割は、データ・事実・統計・状況情報を客観的に整理し、深く掘り下げて分析することです。問題の背景にあるパターン、リスク、トレードオフ、利害関係を明確化し、根拠に基づいた評価を提供します。可能であれば数値的な比較や具体例を用い、推測と事実を明確に区別して述べてください。感情的な判断や主観を避け、常に中立的な立場から多角的に物事を検証します。あなたは批判的思考を重視し、提示された情報や他エージェントの意見に対しても、弱点や見落としがないかを慎重に検証する役割を持ちます。最終的にユーザーが正しい判断を下せるよう、整理された分析結果を分かりやすく提示することがあなたの責務です。`
+};
+
+/* コマンド名とエージェントキーの対応 */
+const COMMAND_MAP = {
+  "Call_Chief": "Chief",
+  "Call_Thinker": "Thinker",
+  "Call_Creator": "Creator",
+  "Call_Analyst": "Analyst"
+};
+
+const AGENT_LABEL = {
+  Chief: "チーフ",
+  Thinker: "論理推論",
+  Creator: "創造者",
+  Analyst: "分析家"
+};
+
+/* =========================================================
+   2. 論理推論エージェント専用のコマンド出力指示(末尾に付与)
+   ※ このコマンドは「論理推論」が最初の回答時にのみ使用する。
+      2番目に呼ばれるエージェント、最後のチーフには付与しない。
+   ========================================================= */
+const COMMAND_INSTRUCTION = `
+
+【重要な出力ルール】
+あなたの回答の本文を書き終えたら、必ず最後の行に、この後どのエージェントに作業を引き継ぐべきかを下記のいずれか1つの形式で出力してください(チーフは含めないでください。チーフへの引き継ぎはシステム側が自動で行います)。
+
+Call_Thinker(エージェントに渡したい具体的な指示や質問文)
+Call_Creator(エージェントに渡したい具体的な指示や質問文)
+Call_Analyst(エージェントに渡したい具体的な指示や質問文)
+
+・括弧の中には、次のエージェントが読んでそのまま作業に取りかかれるよう、具体的で自己完結したプロンプト文を書いてください。
+・このコマンド行は必ず1つだけ、回答の最後に単独で記載してください。
+・コマンド行より後に他の文章を書かないでください。
+・自分自身(論理推論)を再度指定することはできません。`;
+
+/* =========================================================
+   3. 会話履歴管理
+   ========================================================= */
+let conversationLog = []; // {role: 'user'|'agent', agentKey, content}
+
+function appendMessage(role, content, agentKey) {
+  const chat = document.getElementById('chat');
+  const div = document.createElement('div');
+  div.className = 'msg ' + (role === 'user' ? 'user' : 'agent');
+
+  if (role === 'agent') {
+    const label = document.createElement('div');
+    label.className = 'agentName';
+    label.textContent = '🔹 ' + AGENT_LABEL[agentKey];
+    div.appendChild(label);
+  }
+
+  const body = document.createElement('div');
+  body.textContent = content;
+  div.appendChild(body);
+
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function appendSystemNote(text) {
+  const chat = document.getElementById('chat');
+  const div = document.createElement('div');
+  div.className = 'system';
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/* =========================================================
+   4. コマンド抽出ロジック
+   ========================================================= */
+function extractCommand(text) {
+  // Call_XXX( ... ) を最後に検索。括弧内に括弧が含まれない前提で貪欲マッチ。
+  const regex = /Call_(Chief|Thinker|Creator|Analyst)\s*\(([\s\S]*)\)\s*$/;
+  const match = text.trim().match(regex);
+  if (!match) return null;
+  const agentKey = "Call_" + match[1];
+  return {
+    agentKey: COMMAND_MAP[agentKey],
+    prompt: match[2].trim()
+  };
+}
+
+/* 回答本文からコマンド行を取り除いた表示用テキストを作る */
+function stripCommand(text) {
+  return text.replace(/Call_(Chief|Thinker|Creator|Analyst)\s*\([\s\S]*\)\s*$/, '').trim();
+}
+
+/* =========================================================
+   5. Groq API 呼び出し
+   ========================================================= */
+async function callGroqAPI(systemPrompt, userContent) {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) {
+    alert('Groq APIキーを入力してください。');
+    throw new Error('No API Key');
+  }
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + apiKey
+    },
+    body: JSON.stringify({
+      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent }
+      ],
+      temperature: 0.7
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error("API Error: " + response.status + " " + errText);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+/* =========================================================
+   6. メイン処理フロー (3段階固定: 論理推論 → 指定エージェント → チーフ)
+   ========================================================= */
+let isProcessing = false;
+
+async function handleSend() {
+  if (isProcessing) return;
+  const inputEl = document.getElementById('userInput');
+  const userText = inputEl.value.trim();
+  if (!userText) return;
+
+  isProcessing = true;
+  inputEl.value = '';
+  appendMessage('user', userText);
+
+  try {
+    /* ---- STEP 1: 論理推論が無差別に作動 ---- */
+    appendSystemNote((AGENT_LABEL['Thinker']) + ' が考えています...');
+    const thinkerSystemPrompt = SYSTEM_PROMPTS['Thinker'] + COMMAND_INSTRUCTION;
+    const thinkerRaw = await callGroqAPI(thinkerSystemPrompt, userText);
+    const thinkerDisplay = stripCommand(thinkerRaw);
+    appendMessage('agent', thinkerDisplay || '(本文なし)', 'Thinker');
+
+    const command = extractCommand(thinkerRaw);
+
+    if (!command) {
+      appendSystemNote('※ 論理推論エージェントが次のエージェント指定コマンドを出力しなかったため、処理を終了しました。');
+      return;
+    }
+
+    if (command.agentKey === 'Chief' || command.agentKey === 'Thinker') {
+      appendSystemNote('※ 不正なエージェント指定(' + AGENT_LABEL[command.agentKey] + ')のため、デフォルトの「分析家」に振り替えます。');
+      command.agentKey = 'Analyst';
+    }
+
+    /* ---- STEP 2: 論理推論が指定したエージェントが作動 ---- */
+    const secondAgent = command.agentKey;
+    const secondPrompt = command.prompt;
+
+    appendSystemNote((AGENT_LABEL[secondAgent]) + ' が考えています...');
+    // 2番目のエージェントには次のコマンド出力指示を付けない(チーフへの遷移はHTML側で固定するため)
+    const secondSystemPrompt = SYSTEM_PROMPTS[secondAgent];
+    const secondRaw = await callGroqAPI(secondSystemPrompt, secondPrompt);
+    const secondDisplay = secondRaw.trim();
+    appendMessage('agent', secondDisplay || '(本文なし)', secondAgent);
+
+    /* ---- STEP 3: チーフが最終回答を生成 ---- */
+    appendSystemNote((AGENT_LABEL['Chief']) + ' が最終回答をまとめています...');
+
+    const chiefUserContent =
+      '次のデータから、"' + userText + '"に対する回答を生成。"' +
+      thinkerDisplay + '", "' + secondDisplay + '"';
+
+    const chiefSystemPrompt = SYSTEM_PROMPTS['Chief']; // チーフはコマンド出力不要(最終回答のため)
+    const chiefRaw = await callGroqAPI(chiefSystemPrompt, chiefUserContent);
+    const chiefDisplay = chiefRaw.trim();
+    appendMessage('agent', chiefDisplay || '(本文なし)', 'Chief');
+
+  } catch (err) {
+    appendSystemNote('エラーが発生しました: ' + err.message);
+  } finally {
+    isProcessing = false;
+  }
+}
+
+document.getElementById('sendBtn').addEventListener('click', handleSend);
+document.getElementById('userInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleSend();
+});
+</script>
+
+</body>
+</html>
