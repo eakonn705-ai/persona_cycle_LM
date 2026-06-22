@@ -15,11 +15,14 @@
   #inputArea { display: flex; margin-top: 10px; }
   #userInput { flex: 1; padding: 8px; }
   button { padding: 8px 16px; }
+  .handoff { margin: 6px 0 14px 0; }
+  .handoff summary { cursor: pointer; font-size: 0.8em; color: #777; }
+  .handoff pre { background: #fafafa; border: 1px solid #ddd; padding: 8px; white-space: pre-wrap; word-break: break-word; font-size: 0.8em; color: #333; margin-top: 4px; }
 </style>
 </head>
 <body>
 
-<h2>マルチエージェントAIチャット (Llama 4 Scout / Groq)</h2>
+<h2>マルチエージェントAIチャット (Llama 3.3 70B / Groq)</h2>
 
 <label for="apiKey">Groq API Key:</label>
 <input type="text" id="apiKey" placeholder="ここにGroq APIキーを入力 (gsk_...)" value="">
@@ -168,6 +171,26 @@ function appendSystemNote(text) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+/* 「思考→指定①」「指定①→指定②」「指定②→チーフ」など、
+   各エージェントに実際に送信されたプロンプトをHTML上で
+   折りたたみ表示するための関数 */
+function appendHandoffPrompt(label, promptText) {
+  const chat = document.getElementById('chat');
+  const details = document.createElement('details');
+  details.className = 'handoff';
+
+  const summary = document.createElement('summary');
+  summary.textContent = '🔧 ' + label + ' へ送信されたプロンプトを見る';
+  details.appendChild(summary);
+
+  const pre = document.createElement('pre');
+  pre.textContent = promptText;
+  details.appendChild(pre);
+
+  chat.appendChild(details);
+  chat.scrollTop = chat.scrollHeight;
+}
+
 /* =========================================================
    4. コマンド抽出ロジック (2段階リレー対応: 2つのコマンドを順番通りに抽出)
    ========================================================= */
@@ -207,7 +230,7 @@ async function callGroqAPI(systemPrompt, userContent) {
       "Authorization": "Bearer " + apiKey
     },
     body: JSON.stringify({
-      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent }
@@ -245,6 +268,7 @@ async function handleSend() {
     /* ---- STEP 1: 思考が要望を解釈・タスク分解 ---- */
     appendSystemNote((AGENT_LABEL['Thinker']) + ' が考えています...');
     const thinkerSystemPrompt = SYSTEM_PROMPTS['Thinker'] + SCOPE_LIMIT_INSTRUCTION + COMMAND_INSTRUCTION;
+    appendHandoffPrompt('思考(最初の入力)', userText);
     const thinkerRaw = await callGroqAPI(thinkerSystemPrompt, userText);
     const thinkerDisplay = stripCommands(thinkerRaw);
     appendMessage('agent', thinkerDisplay || '(本文なし)', 'Thinker');
@@ -279,6 +303,7 @@ async function handleSend() {
     /* ---- STEP 2: 指定エージェント①が作動 ---- */
     appendSystemNote((AGENT_LABEL[firstCmd.agentKey]) + ' が考えています...');
     const firstSystemPrompt = SYSTEM_PROMPTS[firstCmd.agentKey] + SCOPE_LIMIT_INSTRUCTION;
+    appendHandoffPrompt('思考 → ' + AGENT_LABEL[firstCmd.agentKey], firstCmd.prompt);
     const firstRaw = await callGroqAPI(firstSystemPrompt, firstCmd.prompt);
     const firstDisplay = firstRaw.trim();
     appendMessage('agent', firstDisplay || '(本文なし)', firstCmd.agentKey);
@@ -290,6 +315,7 @@ async function handleSend() {
       '【担当タスク】\n' + secondCmd.prompt +
       '\n\n【前工程(' + AGENT_LABEL[firstCmd.agentKey] + ')からの引き継ぎ内容。この内容を踏まえて、自分の職能の範囲内で処理を加えること】\n' +
       firstDisplay;
+    appendHandoffPrompt(AGENT_LABEL[firstCmd.agentKey] + ' → ' + AGENT_LABEL[secondCmd.agentKey], secondUserContent);
     const secondRaw = await callGroqAPI(secondSystemPrompt, secondUserContent);
     const secondDisplay = secondRaw.trim();
     appendMessage('agent', secondDisplay || '(本文なし)', secondCmd.agentKey);
@@ -303,6 +329,7 @@ async function handleSend() {
       '\n\n【素材2: ' + AGENT_LABEL[secondCmd.agentKey] + 'による中間成果物(素材1を引き継いで加工済み)】\n' + secondDisplay +
       '\n\n上記の素材をすべて踏まえ、ユーザーの元の要望に対する単一の最終回答を生成してください。';
 
+    appendHandoffPrompt(AGENT_LABEL[secondCmd.agentKey] + ' → ' + AGENT_LABEL['Chief'], chiefUserContent);
     const chiefSystemPrompt = SYSTEM_PROMPTS['Chief'] + MERGE_INSTRUCTION;
     const chiefRaw = await callGroqAPI(chiefSystemPrompt, chiefUserContent);
     const chiefDisplay = chiefRaw.trim();
