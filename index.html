@@ -22,7 +22,7 @@
 <h2>マルチエージェントAIチャット (Llama 4 Scout / Groq)</h2>
 
 <label for="apiKey">Groq API Key:</label>
-<input type="text" id="apiKey" placeholder="ここにGroq APIキーを入力 (gsk_...)" value="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">
+<input type="text" id="apiKey" placeholder="ここにGroq APIキーを入力 (gsk_...)" value="">
 <!-- ▲▲▲ 上記の value="" にGroq APIキーを直接記載しても動作します ▲▲▲ -->
 
 <div id="chat"></div>
@@ -39,14 +39,65 @@
 
 const SYSTEM_PROMPTS = {
 
-  Chief: `あなたは「チーフ」という名のAIエージェントです。あなたの役割は、複数のAIエージェント(論理推論・創造者・分析家)の議論や成果を統括し、最終的な意思決定者として振る舞うことです。あなたは常に全体最適の視点を持ち、ユーザーの本質的な目的を見失わないように注意します。他のエージェントが出した意見や分析結果を要約し、矛盾点があれば指摘し、優先順位をつけて整理します。回答は明確かつ簡潔に、結論を最初に述べてから理由を説明する形式を取ります。あなたは指示を出す立場であり、必要であれば他のエージェントに追加の検討を促すこともできます。感情的な表現は避け、常に冷静かつ論理的でありながら、ユーザーに対しては丁寧で信頼感のある口調を保ってください。最終的な統括結論をユーザーに提示することがあなたの最大の責務です。`,
+  Chief: `あなたは「チーフ」という名のAIエージェントです。あなたの役割は、複数のAIエージェント(思考・精密・創造)が生成した中間成果物を受け取り、それらを単一の滑らかな最終回答へと統合(マージ)することです。あなたは執筆者ではなく「料理長」です。複数の食材(素材)をそのまま並べる(コピペ)のではなく、一つの完成した料理として再構築して提供してください。`,
 
-  Thinker: `あなたは「論理推論」という名のAIエージェントです。あなたの役割は、与えられた質問や問題に対して、筋道の通った論理的思考プロセスを用いて分析し、明確な根拠とともに結論を導き出すことです。前提条件を整理し、必要であれば仮説を立て、演繹的・帰納的推論を駆使して矛盾のない説明を構築します。曖昧な点があれば指摘し、可能な限り定量的・構造的な視点で問題を分解してください。感情や主観を排除し、事実とロジックに基づいた回答を心がけます。あなたはすべての質問にまず最初に応答するエージェントであり、必要であれば他のエージェント(チーフ・創造者・分析家)への追加検討を提案する役割も担います。回答の最後には、次にどのエージェントの力が必要かを判断し、指定のコマンド形式で出力してください。`,
+  Thinker: `あなたは「思考」という名のAIエージェントです。あなたの役割は、ユーザーの要望を最初に受け取り、その意図・目的・対象物を正確に解釈し、タスクを構成要素に分解することです。前提条件を整理し、曖昧な点があれば明確化し、論理的かつ構造的にユーザーの要望を解きほぐしてください。感情や主観を排除し、事実とロジックに基づいて分析します。あなたはこのリレーの最初の工程であり、続く2つの専門エージェント(精密・創造)が迷わず作業できるよう、タスクの輪郭を明確にすることが最大の責務です。`,
 
-  Creator: `あなたは「創造者」という名のAIエージェントです。あなたの役割は、既存の枠組みにとらわれない自由な発想とアイデアを生み出すことです。比喩、類推、異分野の知識の組み合わせを駆使し、独創的で新規性のある提案やコンセプトを構築してください。ブレインストーミングのように、複数の選択肢や可能性を提示することを好み、固定観念に縛られた回答は避けます。論理的厳密さよりも、発想の豊かさ・独自性・インスピレーションを重視してください。ただし、突飛なだけでなく、実現可能性や魅力にも触れることで説得力を持たせます。あなたの言葉づかいは生き生きとしており、ユーザーの想像力を刺激するような表現を用いてください。創造的な視点からユーザーの課題に新たな光を当てることが、あなたの存在意義です。`,
+  Creator: `あなたは「創造」という名のAIエージェントです。あなたの役割は、渡された対象物の世界観・トーン・表現の「器」を作ることです。比喩、物語性、感情に訴える言葉づかいを駆使し、独創的で魅力的な表現を構築してください。論理的厳密さよりも、発想の豊かさ・独自性・ワクワク感を重視します。あなたの言葉づかいは生き生きとしており、読み手の想像力を刺激する表現を用いてください。`,
 
-  Analyst: `あなたは「分析家」という名のAIエージェントです。あなたの役割は、データ・事実・統計・状況情報を客観的に整理し、深く掘り下げて分析することです。問題の背景にあるパターン、リスク、トレードオフ、利害関係を明確化し、根拠に基づいた評価を提供します。可能であれば数値的な比較や具体例を用い、推測と事実を明確に区別して述べてください。感情的な判断や主観を避け、常に中立的な立場から多角的に物事を検証します。あなたは批判的思考を重視し、提示された情報や他エージェントの意見に対しても、弱点や見落としがないかを慎重に検証する役割を持ちます。最終的にユーザーが正しい判断を下せるよう、整理された分析結果を分かりやすく提示することがあなたの責務です。`
+  Analyst: `あなたは「精密」という名のAIエージェントです。あなたの役割は、渡された対象物のルール・データ・手順・数値・ロジックを、正確かつ厳密に整理することです。曖昧さや矛盾を排し、誰が読んでも同じ理解に到達できる明確な構造を作ってください。感情的な装飾や比喩は避け、事実と手順の正確性のみを追求します。`
 };
+
+/* =========================================================
+   1-b. 共通サブエージェント用「出力範囲限定」命令文
+   ※ 思考・精密・創造、3つのサブエージェントすべてに共通で付与する。
+      チーフ(最終マージ役)には付与しない。
+   ========================================================= */
+const SCOPE_LIMIT_INSTRUCTION = `
+
+【厳格な職能制限ルール】
+あなたは複数のAIエージェントが連携する処理パイプラインの中の、一つの工程を担当している。
+以下のルールを絶対に守ること。
+
+1.【参照範囲の固定】
+あなたが扱える情報は、直前のエージェントから渡された「入力テキスト」と、今回あなたに与えられた「担当タスク」の二つだけである。それ以外の知識(一般的な業界知識、よくあるテンプレート、自分の事前学習由来の"定型的な正解パターン")を持ち込んで処理対象を上書き・拡張してはならない。
+
+2.【職能の越境禁止】
+あなたの職能は「思考(解釈・分解)」「精密(ルール・データの正確な整形)」「創造(世界観・表現)」のうち、今回与えられた一つのみである。他の職能が本来担うべき要素を自分の判断で追加してはならない。入力に存在しない要素を"親切心"で補完するのは禁止行為である。
+
+3.【逸脱検知の自己チェック】
+出力する前に自問すること:「これは渡された入力テキストの対象物から自然に導出されたものか? それとも自分が知っている"よくあるパターン"に当てはめてしまっていないか?」後者に該当する場合は、入力テキストの具体的な単語・対象・文脈に立ち返って書き直すこと。
+
+4.【次工程への受け渡し最適化】
+あなたの出力は、人間が読む最終回答ではなく、次のエージェントがそのまま素材として使う「半製品」である。次の工程が組み込みやすいよう、余計な前置き・まとめ・結論の蛇足を省き、担当範囲の成果物のみをシンプルかつ高密度に出力すること。`;
+
+/* =========================================================
+   1-c. 【チーフ】専用の「最終マージ」厳格命令文
+   ========================================================= */
+const MERGE_INSTRUCTION = `
+
+【最終統合(マージ)に関する絶対命令】
+あなたに渡されるのは、異なる専門エージェントが生成した複数の「素材テキスト」である。これらに対し、以下を厳守して最終回答を生成すること。
+
+■ 絶対禁止事項
+・素材Aの文章+素材Bの文章を、そのままの文面でコピーして縦に連結する行為(ツギハギ出力)は絶対に禁止する。
+・「ここからは技術的な話です」のような、素材の切れ目が露呈する接続も禁止する。
+・最終出力に、別々の文体・別々のテンションが混在してはならない。
+
+■ マージの方法(必須プロセス)
+1. 複数の素材の中から「器(世界観・トーン・構成の骨格)」を担っている素材を特定する。
+2. その「器」の文体・トーン・構成を全体のベースとして採用する。
+3. 残りの素材が持つ「中身(ルール・データ・ロジックなどの実質的な内容)」を、器の文体に合わせて言い回しを変換しながら、内部に溶け込ませる。数値・ルール・正確性は変えてはならないが、言葉づかいは器に完全に従わせること。
+4. 最終的に一人の書き手が一気に書き下ろしたかのような、単一の文体・単一のテンションで通った文章として出力する。
+
+■ 整合性チェック(出力前の自己検証)
+・最終文章のどこかで急に文体やテンションが変わっていないか?
+・ルールや数値などの正確性が必須な情報が、言い回しを変えても意味として欠落・改変されていないか?
+・読者が「これは複数のAIが別々に書いた断片の合体である」と気づけるような不自然な継ぎ目が残っていないか?
+これらに抵触する場合は、文章全体を一度解体し、器の文体に合わせてすべての要素を書き直すこと。
+
+■ あなたの役割の比喩
+あなたは「複数の食材(素材)を受け取った料理長」である。食材を皿の上にそのまま並べる(コピペ)のではなく、一つの完成した料理(単一の文章)として再構築して提供すること。`;
 
 /* コマンド名とエージェントキーの対応 */
 const COMMAND_MAP = {
@@ -58,29 +109,30 @@ const COMMAND_MAP = {
 
 const AGENT_LABEL = {
   Chief: "チーフ",
-  Thinker: "論理推論",
-  Creator: "創造者",
-  Analyst: "分析家"
+  Thinker: "思考",
+  Creator: "創造",
+  Analyst: "精密"
 };
 
 /* =========================================================
-   2. 論理推論エージェント専用のコマンド出力指示(末尾に付与)
-   ※ このコマンドは「論理推論」が最初の回答時にのみ使用する。
-      2番目に呼ばれるエージェント、最後のチーフには付与しない。
+   2. 「思考」エージェント専用のコマンド出力指示(末尾に付与)
+   ※ 2段階リレーのため、ここでは「指定エージェント①」と
+      「指定エージェント②」の両方を一度に指定させる。
+      チーフは含めない(チーフへの引き継ぎはシステム側が自動で行う)。
    ========================================================= */
 const COMMAND_INSTRUCTION = `
 
 【重要な出力ルール】
-あなたの回答の本文を書き終えたら、必ず最後の行に、この後どのエージェントに作業を引き継ぐべきかを下記のいずれか1つの形式で出力してください(チーフは含めないでください。チーフへの引き継ぎはシステム側が自動で行います)。
+あなたの回答(タスク分解・解釈)を書き終えたら、必ず最後に、この後どの2つの専門エージェントにどの順番で作業を引き継ぐべきかを、下記の形式で出力してください(チーフは含めないでください。チーフへの引き継ぎはシステム側が自動で行います)。
 
-Call_Thinker(エージェントに渡したい具体的な指示や質問文)
-Call_Creator(エージェントに渡したい具体的な指示や質問文)
-Call_Analyst(エージェントに渡したい具体的な指示や質問文)
+Call_Creator(エージェントに渡したい具体的な指示文)
+Call_Analyst(エージェントに渡したい具体的な指示文)
 
-・括弧の中には、次のエージェントが読んでそのまま作業に取りかかれるよう、具体的で自己完結したプロンプト文を書いてください。
-・このコマンド行は必ず1つだけ、回答の最後に単独で記載してください。
-・コマンド行より後に他の文章を書かないでください。
-・自分自身(論理推論)を再度指定することはできません。`;
+・上記2行のうち、実際に使うのは「精密」(Call_Analyst)と「創造」(Call_Creator)のいずれか2つを、実行してほしい順番で記載してください。同じエージェントを2回指定することはできません。
+・1行目に書いたコマンドが先に実行され、その成果物が2行目のコマンドのエージェントに引き継がれます。
+・括弧の中には、そのエージェントが読んでそのまま作業に取りかかれるよう、具体的で自己完結したプロンプト文を書いてください。ユーザーの要望全体の対象物(何についてのタスクか)を必ず明記し、抽象的な指示で終わらせないこと。
+・コマンド行は必ず2行のみとし、それより後に他の文章を書かないでください。
+・自分自身(思考)を指定することはできません。`;
 
 /* =========================================================
    3. 会話履歴管理
@@ -117,23 +169,25 @@ function appendSystemNote(text) {
 }
 
 /* =========================================================
-   4. コマンド抽出ロジック
+   4. コマンド抽出ロジック (2段階リレー対応: 2つのコマンドを順番通りに抽出)
    ========================================================= */
-function extractCommand(text) {
-  // Call_XXX( ... ) を最後に検索。括弧内に括弧が含まれない前提で貪欲マッチ。
-  const regex = /Call_(Chief|Thinker|Creator|Analyst)\s*\(([\s\S]*)\)\s*$/;
-  const match = text.trim().match(regex);
-  if (!match) return null;
-  const agentKey = "Call_" + match[1];
-  return {
-    agentKey: COMMAND_MAP[agentKey],
-    prompt: match[2].trim()
-  };
+function extractCommands(text) {
+  // テキスト中に現れる Call_XXX( ... ) を出現順にすべて抽出する。
+  const regex = /Call_(Chief|Thinker|Creator|Analyst)\s*\(([\s\S]*?)\)/g;
+  const results = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    results.push({
+      agentKey: COMMAND_MAP["Call_" + match[1]],
+      prompt: match[2].trim()
+    });
+  }
+  return results;
 }
 
-/* 回答本文からコマンド行を取り除いた表示用テキストを作る */
-function stripCommand(text) {
-  return text.replace(/Call_(Chief|Thinker|Creator|Analyst)\s*\([\s\S]*\)\s*$/, '').trim();
+/* 回答本文からコマンド行(複数)を取り除いた表示用テキストを作る */
+function stripCommands(text) {
+  return text.replace(/Call_(Chief|Thinker|Creator|Analyst)\s*\([\s\S]*?\)\s*\n?/g, '').trim();
 }
 
 /* =========================================================
@@ -172,7 +226,8 @@ async function callGroqAPI(systemPrompt, userContent) {
 }
 
 /* =========================================================
-   6. メイン処理フロー (3段階固定: 論理推論 → 指定エージェント → チーフ)
+   6. メイン処理フロー
+   (4段階リレー: 思考 → 指定エージェント① → 指定エージェント② → チーフ)
    ========================================================= */
 let isProcessing = false;
 
@@ -187,44 +242,68 @@ async function handleSend() {
   appendMessage('user', userText);
 
   try {
-    /* ---- STEP 1: 論理推論が無差別に作動 ---- */
+    /* ---- STEP 1: 思考が要望を解釈・タスク分解 ---- */
     appendSystemNote((AGENT_LABEL['Thinker']) + ' が考えています...');
-    const thinkerSystemPrompt = SYSTEM_PROMPTS['Thinker'] + COMMAND_INSTRUCTION;
+    const thinkerSystemPrompt = SYSTEM_PROMPTS['Thinker'] + SCOPE_LIMIT_INSTRUCTION + COMMAND_INSTRUCTION;
     const thinkerRaw = await callGroqAPI(thinkerSystemPrompt, userText);
-    const thinkerDisplay = stripCommand(thinkerRaw);
+    const thinkerDisplay = stripCommands(thinkerRaw);
     appendMessage('agent', thinkerDisplay || '(本文なし)', 'Thinker');
 
-    const command = extractCommand(thinkerRaw);
+    let commands = extractCommands(thinkerRaw);
 
-    if (!command) {
-      appendSystemNote('※ 論理推論エージェントが次のエージェント指定コマンドを出力しなかったため、処理を終了しました。');
+    // 不正な指定(Chief/Thinkerや重複)を除去し、有効なものだけ残す
+    commands = commands.filter(c => c.agentKey === 'Creator' || c.agentKey === 'Analyst');
+    // 重複排除(同じエージェントが2回指定された場合は最初の1つだけ採用)
+    const seen = new Set();
+    commands = commands.filter(c => {
+      if (seen.has(c.agentKey)) return false;
+      seen.add(c.agentKey);
+      return true;
+    });
+
+    if (commands.length === 0) {
+      appendSystemNote('※ 思考エージェントが有効なエージェント指定コマンドを出力しなかったため、処理を終了しました。');
       return;
     }
 
-    if (command.agentKey === 'Chief' || command.agentKey === 'Thinker') {
-      appendSystemNote('※ 不正なエージェント指定(' + AGENT_LABEL[command.agentKey] + ')のため、デフォルトの「分析家」に振り替えます。');
-      command.agentKey = 'Analyst';
+    // 1つしか指定されなかった場合は、残りのエージェントを自動補完する
+    if (commands.length === 1) {
+      const missing = commands[0].agentKey === 'Creator' ? 'Analyst' : 'Creator';
+      commands.push({ agentKey: missing, prompt: commands[0].prompt });
+      appendSystemNote('※ 2つ目のエージェント指定が無かったため、自動的に「' + AGENT_LABEL[missing] + '」を補完しました。');
     }
 
-    /* ---- STEP 2: 論理推論が指定したエージェントが作動 ---- */
-    const secondAgent = command.agentKey;
-    const secondPrompt = command.prompt;
+    const firstCmd = commands[0];
+    const secondCmd = commands[1];
 
-    appendSystemNote((AGENT_LABEL[secondAgent]) + ' が考えています...');
-    // 2番目のエージェントには次のコマンド出力指示を付けない(チーフへの遷移はHTML側で固定するため)
-    const secondSystemPrompt = SYSTEM_PROMPTS[secondAgent];
-    const secondRaw = await callGroqAPI(secondSystemPrompt, secondPrompt);
+    /* ---- STEP 2: 指定エージェント①が作動 ---- */
+    appendSystemNote((AGENT_LABEL[firstCmd.agentKey]) + ' が考えています...');
+    const firstSystemPrompt = SYSTEM_PROMPTS[firstCmd.agentKey] + SCOPE_LIMIT_INSTRUCTION;
+    const firstRaw = await callGroqAPI(firstSystemPrompt, firstCmd.prompt);
+    const firstDisplay = firstRaw.trim();
+    appendMessage('agent', firstDisplay || '(本文なし)', firstCmd.agentKey);
+
+    /* ---- STEP 3: 指定エージェント②が、①の成果物を引き継いで作動 ---- */
+    appendSystemNote((AGENT_LABEL[secondCmd.agentKey]) + ' が考えています...');
+    const secondSystemPrompt = SYSTEM_PROMPTS[secondCmd.agentKey] + SCOPE_LIMIT_INSTRUCTION;
+    const secondUserContent =
+      '【担当タスク】\n' + secondCmd.prompt +
+      '\n\n【前工程(' + AGENT_LABEL[firstCmd.agentKey] + ')からの引き継ぎ内容。この内容を踏まえて、自分の職能の範囲内で処理を加えること】\n' +
+      firstDisplay;
+    const secondRaw = await callGroqAPI(secondSystemPrompt, secondUserContent);
     const secondDisplay = secondRaw.trim();
-    appendMessage('agent', secondDisplay || '(本文なし)', secondAgent);
+    appendMessage('agent', secondDisplay || '(本文なし)', secondCmd.agentKey);
 
-    /* ---- STEP 3: チーフが最終回答を生成 ---- */
+    /* ---- STEP 4: チーフが厳格マージ命令に基づき最終回答を生成 ---- */
     appendSystemNote((AGENT_LABEL['Chief']) + ' が最終回答をまとめています...');
 
     const chiefUserContent =
-      '次のデータから、"' + userText + '"に対する回答を生成。"' +
-      thinkerDisplay + '", "' + secondDisplay + '"';
+      '【ユーザーの元の要望】\n' + userText +
+      '\n\n【素材1: ' + AGENT_LABEL[firstCmd.agentKey] + 'による中間成果物】\n' + firstDisplay +
+      '\n\n【素材2: ' + AGENT_LABEL[secondCmd.agentKey] + 'による中間成果物(素材1を引き継いで加工済み)】\n' + secondDisplay +
+      '\n\n上記の素材をすべて踏まえ、ユーザーの元の要望に対する単一の最終回答を生成してください。';
 
-    const chiefSystemPrompt = SYSTEM_PROMPTS['Chief']; // チーフはコマンド出力不要(最終回答のため)
+    const chiefSystemPrompt = SYSTEM_PROMPTS['Chief'] + MERGE_INSTRUCTION;
     const chiefRaw = await callGroqAPI(chiefSystemPrompt, chiefUserContent);
     const chiefDisplay = chiefRaw.trim();
     appendMessage('agent', chiefDisplay || '(本文なし)', 'Chief');
